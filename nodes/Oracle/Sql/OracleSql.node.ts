@@ -405,7 +405,11 @@ export class OracleSql implements INodeType {
                 // Prepare the SQL call statement
                 let callStatement = `BEGIN ${storedProcedure}(`;
                 callStatement += [...inParams.map((param: any) => `:${param.name}`), ...outParams.map((param: any) => `:${param.name}`)].join(', ');
-                callStatement += '); END;';
+                callStatement += `);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('No data found');
+END;`;
 
                 // Prepare the bind variable object
                 let bindVars: any = {};
