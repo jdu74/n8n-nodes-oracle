@@ -60,6 +60,13 @@ export class OracleSql implements INodeType {
 						description: 'Update rows in database',
 						action: 'Update rows in database',
 					},
+                    {
+                        name: 'Execute Stored Procedure',
+                        displayName: 'Execute Stored Procedure',
+                        value: 'executeStoredProcedure',
+                        description: 'Execute a stored procedure',
+                        action: 'Execute a stored procedure',
+                    }
 				],
 				default: 'insert',
 			},
@@ -81,6 +88,74 @@ export class OracleSql implements INodeType {
 				required: true,
 				description: 'The SQL query to execute',
 			},
+
+			// ----------------------------------
+			//         executeSP
+			// ----------------------------------
+			{
+				displayName: 'Stored Procedure',
+				name: 'storedProcedure',
+				type: 'string',
+				displayOptions: {
+					show: {
+						operation: ['executeStoredProcedure'],
+					},
+				},
+				default: '',
+				placeholder: 'get_customer_details',
+				required: true,
+				description: 'The SQL query to execute',
+			},
+            {
+                displayName: 'Procedure Parameters',
+                name: 'procedureParameters',
+                type: 'fixedCollection',
+                typeOptions: {
+                    multipleValues: true,
+                },
+                displayOptions: {
+                    show: {
+                        operation: ['executeStoredProcedure'],
+                    },
+                },
+                placeholder: 'Add Parameter',
+                default: {},
+                options: [
+                    {
+                        name: 'in',
+                        displayName: 'In',
+                        values: [
+                            {
+                                displayName: 'Name',
+                                name: 'name',
+                                type: 'string',
+                                default: '',
+                                description: 'Name of the input parameter.',
+                            },
+                            {
+                                displayName: 'Value',
+                                name: 'value',
+                                type: 'string',
+                                default: '',
+                                description: 'Value of the input parameter.',
+                            },
+                        ],
+                    },
+                    {
+                        name: 'out',
+                        displayName: 'Out',
+                        values: [
+                            {
+                                displayName: 'Name',
+                                name: 'name',
+                                type: 'string',
+                                default: '',
+                                description: 'Name of the output parameter.',
+                            },
+                        ],
+                    },
+                ],
+            },
 
 			// ----------------------------------
 			//         insert
@@ -315,6 +390,54 @@ export class OracleSql implements INodeType {
 					throw error;
 				}
 			}
+        } else if (operation === 'executeStoredProcedure') {
+			// ----------------------------------
+			//         executeStoredProcedure
+			// ----------------------------------
+            try {
+                const storedProcedure = this.getNodeParameter('storedProcedure', 0) as string;
+                const procedureParameters = this.getNodeParameter('procedureParameters', 0) as any;
+
+                // Prepare input and output parameter lists
+                const inParams = procedureParameters.in || [];
+                const outParams = procedureParameters.out || [];
+
+                // Prepare the SQL call statement
+                let callStatement = `BEGIN ${storedProcedure}(`;
+                callStatement += [...inParams.map((param: any) => `:${param.name}`), ...outParams.map((param: any) => `:${param.name}`)].join(', ');
+                callStatement += `);
+EXCEPTION
+    WHEN NO_DATA_FOUND THEN
+        DBMS_OUTPUT.PUT_LINE('No data found');
+END;`;
+
+                // Prepare the bind variable object
+                let bindVars: any = {};
+                inParams.forEach((param: any, i: number) => {
+                    bindVars[param.name] = param.value;
+                });
+                outParams.forEach((param: any) => {
+                    bindVars[param.name] = { dir: oracledb.BIND_OUT };
+                });
+
+                // Execute the stored procedure
+                const result = await connection.execute(callStatement, bindVars);
+
+                // Prepare the output data
+                let outputData: IDataObject = {};
+                outParams.forEach((param: any) => {
+                    outputData[param.name] = result.outBinds[param.name];
+                });
+
+                returnItems = this.helpers.returnJsonArray([outputData]);
+            } catch (error) {
+                if (this.continueOnFail()) {
+                    returnItems = this.helpers.returnJsonArray({ error: error.message });
+                } else {
+                    await connection.close();
+                    throw error;
+                }
+            }
 		} else if (operation === 'insert') {
 			// ----------------------------------
 			//         insert
